@@ -28,7 +28,9 @@ from sqlalchemy.orm import Session
 load_dotenv()  # Load environment variables from .env file
 
 # --- Backend Module Setup ---
-sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
+backend_path = os.path.join(os.path.dirname(__file__), 'backend')
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
 
 # ============================================================================
 # BACKEND LOADER - Cached to improve performance
@@ -36,33 +38,39 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 @st.cache_resource
 def load_backend_modules():
     """Load all backend modules with caching for performance optimization."""
-    import db_connector as db  # type: ignore
-    from repo_scanner import get_repo_chunks, _log_debug  # type: ignore
-    from ai_parser import parse_code_chunk, generate_embedding  # type: ignore
-    from file_processor import extract_text_from_file, chunk_text  # type: ignore
-    
-    return {
-        # Database Models
-        'init_db': db.init_db,
-        'get_engine': db.get_engine,
-        'Base': db.Base,
-        'run_migrations': db.run_migrations,
-        'get_schema_diagnostics': db.get_schema_diagnostics,
-        'Hub': db.Hub,
-        'SearchHistory': db.SearchHistory,
-        'User': db.User,
-        'ChatMessage': db.ChatMessage,
-        'FileMetadata': db.FileMetadata,
-        'Satellite': db.Satellite,
-        'KeyPool': db.KeyPool,
-        # Backend Functions
-        'get_repo_chunks': get_repo_chunks,
-        '_log_debug': _log_debug,
-        'parse_code_chunk': parse_code_chunk,
-        'generate_embedding': generate_embedding,
-        'extract_text_from_file': extract_text_from_file,
-        'chunk_text': chunk_text
-    }
+    try:
+        import db_connector as db  # type: ignore
+        from repo_scanner import get_repo_chunks, _log_debug  # type: ignore
+        from ai_parser import parse_code_chunk, generate_embedding  # type: ignore
+        from file_processor import extract_text_from_file, chunk_text  # type: ignore
+        
+        return {
+            # Database Models
+            'init_db': db.init_db,
+            'get_engine': db.get_engine,
+            'Base': db.Base,
+            'run_migrations': db.run_migrations,
+            'get_schema_diagnostics': db.get_schema_diagnostics,
+            'Hub': db.Hub,
+            'SearchHistory': db.SearchHistory,
+            'User': db.User,
+            'ChatMessage': db.ChatMessage,
+            'FileMetadata': db.FileMetadata,
+            'Satellite': db.Satellite,
+            'KeyPool': db.KeyPool,
+            # Backend Functions
+            'get_repo_chunks': get_repo_chunks,
+            '_log_debug': _log_debug,
+            'parse_code_chunk': parse_code_chunk,
+            'generate_embedding': generate_embedding,
+            'extract_text_from_file': extract_text_from_file,
+            'chunk_text': chunk_text
+        }
+    except ImportError as e:
+        st.error(f"❌ Failed to load backend modules: {str(e)}")
+        st.error("Please ensure all backend files exist in the backend/ directory")
+        st.stop()
+        return {}
 
 # Load backend and extract commonly used items
 backend = load_backend_modules()
