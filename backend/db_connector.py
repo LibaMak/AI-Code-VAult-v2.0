@@ -4,8 +4,8 @@
 
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, Float, Boolean, ForeignKey, JSON, inspect
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, Float, Boolean, ForeignKey, JSON, inspect, text
+from sqlalchemy.orm import declarative_base, sessionmaker, synonym
 from sqlalchemy.pool import StaticPool
 
 # Database Setup
@@ -22,7 +22,10 @@ class User(Base):
     
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, index=True)
+    # Legacy column retained for older DBs that require this NOT NULL field
+    hashed_password = Column(String)
     password_hash = Column(String)
+    session_token = Column(String, unique=True, index=True, nullable=True)
     role = Column(String, default='User')
     scan_progress = Column(Integer, default=0)
     scan_status = Column(String, default='Idle')
@@ -120,10 +123,108 @@ def get_session():
     Session = sessionmaker(bind=engine)
     return Session()
 
-def run_migrations():
+def _ensure_user_session_token(engine):
+    """Ensure the users table has a session_token column for persistent login."""
+    try:
+        inspector = inspect(engine)
+        if 'users' not in inspector.get_table_names():
+            return
+        columns = {col['name'] for col in inspector.get_columns('users')}
+        if 'session_token' not in columns:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE users ADD COLUMN session_token VARCHAR'))
+    except Exception:
+        return
+
+def _ensure_user_password_hash(engine):
+    """Ensure users table has password_hash and backfill from hashed_password if needed."""
+    try:
+        inspector = inspect(engine)
+        if 'users' not in inspector.get_table_names():
+            return
+        columns = {col['name'] for col in inspector.get_columns('users')}
+        if 'password_hash' not in columns:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE users ADD COLUMN password_hash VARCHAR'))
+                if 'hashed_password' in columns:
+                    conn.execute(text('UPDATE users SET password_hash = hashed_password WHERE password_hash IS NULL'))
+    except Exception:
+        return
+
+def _ensure_user_columns(engine):
+    """Ensure legacy databases have all expected User columns."""
+    try:
+        inspector = inspect(engine)
+        if 'users' not in inspector.get_table_names():
+            return
+        columns = {col['name'] for col in inspector.get_columns('users')}
+        missing_columns = []
+
+        if 'created_at' not in columns:
+            missing_columns.append('created_at DATETIME')
+        if 'updated_at' not in columns:
+            missing_columns.append('updated_at DATETIME')
+        if 'scan_progress' not in columns:
+            missing_columns.append('scan_progress INTEGER')
+        if 'scan_status' not in columns:
+            missing_columns.append('scan_status VARCHAR')
+
+        if missing_columns:
+            with engine.begin() as conn:
+                for column_def in missing_columns:
+                    conn.execute(text(f'ALTER TABLE users ADD COLUMN {column_def}'))
+    except Exception:
+        return
+
+def _ensure_hub_columns(engine):
+    """Ensure legacy databases have all expected Hub columns."""
+    try:
+        inspector = inspect(engine)
+        if 'hubs' not in inspector.get_table_names():
+            return
+        columns = {col['name'] for col in inspector.get_columns('hubs')}
+        missing_columns = []
+
+        if 'repo_url' not in columns:
+            missing_columns.append('repo_url VARCHAR')
+        if 'code_snippet' not in columns:
+            missing_columns.append('code_snippet TEXT')
+        if 'embedding_vector' not in columns:
+            missing_columns.append('embedding_vector JSON')
+        if 'complexity_score' not in columns:
+            missing_columns.append('complexity_score FLOAT')
+        if 'indexed_at' not in columns:
+            missing_columns.append('indexed_at DATETIME')
+
+        if missing_columns:
+            with engine.begin() as conn:
+                for column_def in missing_columns:
+                    conn.execute(text(f'ALTER TABLE hubs ADD COLUMN {column_def}'))
+    except Exception:
+        return
+
+def _ensure_key_pool_columns(engine):
+    """Ensure legacy databases have all expected KeyPool columns."""
+    try:
+        inspector = inspect(engine)
+        if 'key_pool' not in inspector.get_table_names():
+            return
+        columns = {col['name'] for col in inspector.get_columns('key_pool')}
+        if 'created_at' not in columns:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE key_pool ADD COLUMN created_at DATETIME'))
+    except Exception:
+        return
+
+def run_migrations(engine=None):
     """Run database migrations."""
-    engine = get_engine()
+    engine = engine or get_engine()
     Base.metadata.create_all(bind=engine)
+    _ensure_user_session_token(engine)
+    _ensure_user_password_hash(engine)
+    _ensure_user_columns(engine)
+    _ensure_hub_columns(engine)
+    _ensure_key_pool_columns(engine)
 
 def get_schema_diagnostics(engine):
     """Get database schema diagnostics."""

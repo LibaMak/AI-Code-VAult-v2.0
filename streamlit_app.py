@@ -483,6 +483,8 @@ def get_db_engine_v4():
     return engine
 
 engine_v4 = get_db_engine_v4()
+# Ensure schema upgrades (like password_hash) exist before any queries
+backend['run_migrations'](engine_v4)
 session = Session(engine_v4)
 
 # --- IRON-CLAD VERIFICATION HANDSHAKE ---
@@ -491,6 +493,8 @@ def verify_integrity():
         for attempt in range(3):
             diag = backend['get_schema_diagnostics'](engine_v4)
             if "users" in diag['tables']:
+                # Ensure columns are present for upgraded schemas
+                backend['run_migrations'](engine_v4)
                 return True
             # Attempt repair
             backend['Base'].metadata.create_all(engine_v4)
@@ -509,9 +513,15 @@ try:
     new_pass_hash = bcrypt.hashpw("admin123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     existing_admin = session.query(User).filter(User.email == admin_email).first()
     if existing_admin:
+        existing_admin.password_hash = new_pass_hash
         existing_admin.hashed_password = new_pass_hash
     else:
-        new_admin = User(email=admin_email, hashed_password=new_pass_hash, role='Admin')
+        new_admin = User(
+            email=admin_email,
+            password_hash=new_pass_hash,
+            hashed_password=new_pass_hash,
+            role='Admin'
+        )
         session.add(new_admin)
     session.commit()
 except Exception as e:
@@ -798,7 +808,8 @@ def auth_page():
                         st.info(f"Target DB: {str(session.bind.url)}")
                         st.stop()
                         
-                    if user and verify_password(password, user.hashed_password):
+                    stored_hash = user.password_hash or user.hashed_password
+                    if user and stored_hash and verify_password(password, stored_hash):
                         st.session_state.authenticated = True
                         st.session_state.user = {"id": user.id, "email": user.email, "role": user.role}
                         st.session_state.menu = "Admin_Dashboard" if user.role == 'Admin' else "Ingest"
@@ -845,7 +856,13 @@ def auth_page():
                         else:
                             try:
                                 role = 'Admin' if new_email == 'admin@vault.ai' else 'User'
-                                new_user = User(email=new_email, hashed_password=hash_password(new_pass), role=role)
+                                new_hash = hash_password(new_pass)
+                                new_user = User(
+                                    email=new_email,
+                                    password_hash=new_hash,
+                                    hashed_password=new_hash,
+                                    role=role
+                                )
                                 session.add(new_user)
                                 session.commit()
                                 st.success("Registered successfully! Please switch to Login tab.")
