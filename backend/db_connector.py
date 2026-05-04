@@ -4,7 +4,7 @@
 
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, Float, Boolean, ForeignKey, JSON
+from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, Float, Boolean, ForeignKey, JSON, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -135,10 +135,14 @@ def get_schema_diagnostics(engine):
         else:
             file_exists = True
         
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+
         return {
             'file_exists': file_exists,
             'file_path': DATABASE_URL,
-            'tables_created': True
+            'tables_created': True,
+            'tables': tables
         }
     except Exception as e:
         return {
