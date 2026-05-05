@@ -897,16 +897,7 @@ def auth_page():
                             try:
                                 role = 'Admin' if new_email == 'admin@vault.ai' else 'User'
                                 hash_val = hash_password(new_pass)
-                                new_user = User(email=new_email, role=role)
-                                # Write both fields for backward compatibility with legacy DBs
-                                try:
-                                    new_user.password_hash = hash_val
-                                except Exception:
-                                    pass
-                                try:
-                                    new_user.hashed_password = hash_val
-                                except Exception:
-                                    pass
+                                new_user = User(email=new_email, role=role, hashed_password=hash_val)
                                 session.add(new_user)
                                 session.commit()
                                 st.success("Registered successfully! Please switch to Login tab.")

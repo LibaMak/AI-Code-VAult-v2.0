@@ -22,7 +22,8 @@ class User(Base):
     
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, index=True)
-    password_hash = Column(String)
+    hashed_password = Column(String)  # Match actual database schema
+    password_hash = Column(String)  # Fallback for backward compatibility
     role = Column(String, default='User')
     scan_progress = Column(Integer, default=0)
     scan_status = Column(String, default='Idle')
