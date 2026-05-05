@@ -1197,8 +1197,25 @@ def background_scan_task(repo_url, user_id, abort_event):
         _log_debug(traceback.format_exc())
         _update_db(0, err_msg)
 
+
+def stop_ingestion(user_id, status_message="Halted by User."):
+    """Stop the active ingestion flow and persist the halted state."""
+    st.session_state.abort_event.set()
+    st.session_state.is_scanning = False
+    st.session_state.scan_status = status_message
+    st.session_state.scan_progress = 0
+
+    engine = get_engine()
+    with Session(engine) as scan_session:
+        db_user = scan_session.query(User).filter(User.id == user_id).first()
+        if db_user:
+            db_user.scan_status = status_message
+            db_user.scan_progress = 0
+            scan_session.commit()
+
 def process_file_content(uploaded_file, user_id):
     """Index a single file's content into the Hub - Supports Multi Format"""
+    st.session_state.abort_event.clear()
     st.session_state.is_scanning = True
     st.session_state.scan_status = "Analyzing and Chunking file..."
     try:
@@ -1229,6 +1246,11 @@ def process_file_content(uploaded_file, user_id):
             
         total_chunks = len(chunks)
         for i, c in enumerate(chunks):
+            if st.session_state.abort_event.is_set():
+                session.rollback()
+                st.session_state.scan_status = "Halted by User."
+                st.session_state.scan_progress = 0
+                return
             if not c.strip(): continue
             
             # Create a mock chunk object for the AI Parser
@@ -1254,6 +1276,12 @@ def process_file_content(uploaded_file, user_id):
                 session.merge(new_hub)
                 
             st.session_state.scan_progress = int(100 * (i+1)/total_chunks)
+
+        if st.session_state.abort_event.is_set():
+            session.rollback()
+            st.session_state.scan_status = "Halted by User."
+            st.session_state.scan_progress = 0
+            return
                 
         session.commit()
         st.session_state.scan_message = f"Successfully indexed {filename} into the Vault."
@@ -1532,17 +1560,8 @@ if menu == "Ingest":
             st.markdown("---")
             render_custom_progress(live_status, live_prog)
             
-            if st.button("Abort Operation", key="abort_scan_main", type="primary", use_container_width=True):
-                st.session_state.abort_event.set() # Trigger kill-switch
-                st.session_state.is_scanning = False # Instant UI reset
-                st.session_state.scan_status = ""
-                st.session_state.scan_progress = 0
-                
-                _u = session.query(User).filter(User.id == st.session_state.user['id']).first()
-                if _u:
-                    _u.scan_status = "Halted by User."
-                    _u.scan_progress = 0
-                    session.commit()
+            if st.button("Stop Ingestion", key="abort_scan_main", type="secondary", use_container_width=True):
+                stop_ingestion(st.session_state.user['id'])
                 st.rerun()
 
             # Real-time auto-refresh: poll DB every 2s while scan is running
