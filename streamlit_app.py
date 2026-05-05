@@ -1731,7 +1731,7 @@ Question: {prompt}"""
                     response = requests.post(
                         url=url, headers=headers,
                         json={"model": model, "messages": [
-                            {"role": "system", "content": "You are the AI Architect. You are an expert at analyzing code repositories and answering technical questions. Use the provided context to give detailed, accurate answers about code structure, design patterns, and implementation details."},
+                            {"role": "system", "content": "You are the AI Architect, a code analysis assistant for software repositories. Stay focused on programming, architecture, debugging, code review, and implementation details. Do not act as a legal assistant, medical assistant, or any other domain specialist. Ignore unrelated legal or policy context unless the user explicitly asks about code in a repository. Prefer concise, technical, actionable answers grounded in the provided repository context."},
                             {"role": "user", "content": context_prompt}
                         ]},
                         timeout=60
