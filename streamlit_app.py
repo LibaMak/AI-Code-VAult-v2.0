@@ -179,6 +179,10 @@ st.markdown("""
         color: var(--vault-text);
     }
 
+    .stApp * {
+        caret-color: var(--vault-text);
+    }
+
     .stApp h1,
     .stApp h2,
     .stApp h3,
@@ -196,14 +200,56 @@ st.markdown("""
     [data-testid="stMarkdownContainer"] p,
     [data-testid="stMarkdownContainer"] li,
     [data-testid="stMarkdownContainer"] span,
+    [data-testid="stMarkdownContainer"] strong,
+    [data-testid="stMarkdownContainer"] b,
+    [data-testid="stMarkdownContainer"] code,
+    [data-testid="stMarkdownContainer"] pre,
     [data-testid="stCaptionContainer"] p,
+    [data-testid="stCaptionContainer"] span,
     [data-testid="stTextInput"] label p,
     [data-testid="stSelectbox"] label p,
     [data-testid="stRadio"] label p,
     [data-testid="stCheckbox"] label p,
+    [data-testid="stSlider"] label p,
+    [data-testid="stNumberInput"] label p,
+    [data-testid="stTextArea"] label p,
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"],
+    [data-testid="stMetricDelta"],
     [data-testid="stExpander"] summary,
-    [data-testid="stDataFrame"] {
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"],
+    [data-testid="stDataEditor"],
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] *,
+    [data-testid="stToolbar"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stFileUploader"],
+    [data-testid="stNotificationContent"],
+    .stAlert, .stAlert *,
+    .stException, .stException * {
         color: var(--vault-text) !important;
+    }
+
+    [data-baseweb="input"] input,
+    [data-baseweb="textarea"] textarea,
+    [data-baseweb="select"] div,
+    [data-baseweb="select"] span,
+    [data-baseweb="tag"] span,
+    .stTextInput input,
+    .stTextArea textarea,
+    .stSelectbox [role="combobox"],
+    .stMultiSelect [role="combobox"] {
+        color: var(--vault-text) !important;
+        -webkit-text-fill-color: var(--vault-text) !important;
+    }
+
+    [data-baseweb="input"] input::placeholder,
+    [data-baseweb="textarea"] textarea::placeholder,
+    .stTextInput input::placeholder,
+    .stTextArea textarea::placeholder {
+        color: var(--vault-text-muted) !important;
+        opacity: 1 !important;
     }
 
     [data-testid="stAlert"] {
@@ -1287,12 +1333,28 @@ def run_hybrid_search(query):
     engine = get_engine()
     
     # Keyword & Vector Hybrid logic (User Scoped)
-    stmt = sa.select(Hub.hash_key, Hub.code_snippet, Hub.embedding).where(Hub.user_id == user_id)
+    hub_table = Hub.__table__
+    if "embedding_vector" in hub_table.c:
+        embedding_column = hub_table.c["embedding_vector"]
+    else:
+        embedding_column = hub_table.c.get("embedding")
+    if embedding_column is not None:
+        stmt = sa.select(
+            Hub.hash_key,
+            Hub.code_snippet,
+            embedding_column.label("embedding")
+        ).where(Hub.user_id == user_id)
+    else:
+        stmt = sa.select(
+            Hub.hash_key,
+            Hub.code_snippet,
+        ).where(Hub.user_id == user_id)
     results = session.execute(stmt).all()
     
     scored_results = []
     for r in results:
-        emb = np.array(r.embedding) if r.embedding and len(r.embedding) > 0 else None
+        emb_data = getattr(r, "embedding", None)
+        emb = np.array(emb_data) if emb_data and len(emb_data) > 0 else None
         if emb is not None:
             try:
                 # Cosine similarity
