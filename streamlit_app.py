@@ -483,8 +483,6 @@ def get_db_engine_v4():
     return engine
 
 engine_v4 = get_db_engine_v4()
-# Ensure schema upgrades (like password_hash) exist before any queries
-backend['run_migrations'](engine_v4)
 session = Session(engine_v4)
 
 # --- IRON-CLAD VERIFICATION HANDSHAKE ---
@@ -493,8 +491,6 @@ def verify_integrity():
         for attempt in range(3):
             diag = backend['get_schema_diagnostics'](engine_v4)
             if "users" in diag['tables']:
-                # Ensure columns are present for upgraded schemas
-                backend['run_migrations'](engine_v4)
                 return True
             # Attempt repair
             backend['Base'].metadata.create_all(engine_v4)
@@ -513,15 +509,9 @@ try:
     new_pass_hash = bcrypt.hashpw("admin123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     existing_admin = session.query(User).filter(User.email == admin_email).first()
     if existing_admin:
-        existing_admin.password_hash = new_pass_hash
         existing_admin.hashed_password = new_pass_hash
     else:
-        new_admin = User(
-            email=admin_email,
-            password_hash=new_pass_hash,
-            hashed_password=new_pass_hash,
-            role='Admin'
-        )
+        new_admin = User(email=admin_email, hashed_password=new_pass_hash, role='Admin')
         session.add(new_admin)
     session.commit()
 except Exception as e:
@@ -808,7 +798,11 @@ def auth_page():
                         st.info(f"Target DB: {str(session.bind.url)}")
                         st.stop()
                         
-                    stored_hash = user.password_hash or user.hashed_password
+                    # Safely obtain stored password hash from legacy or current column
+                    stored_hash = None
+                    if user:
+                        stored_hash = getattr(user, "password_hash", None) or getattr(user, "hashed_password", None)
+
                     if user and stored_hash and verify_password(password, stored_hash):
                         st.session_state.authenticated = True
                         st.session_state.user = {"id": user.id, "email": user.email, "role": user.role}
@@ -856,13 +850,17 @@ def auth_page():
                         else:
                             try:
                                 role = 'Admin' if new_email == 'admin@vault.ai' else 'User'
-                                new_hash = hash_password(new_pass)
-                                new_user = User(
-                                    email=new_email,
-                                    password_hash=new_hash,
-                                    hashed_password=new_hash,
-                                    role=role
-                                )
+                                hash_val = hash_password(new_pass)
+                                new_user = User(email=new_email, role=role)
+                                # Write both fields for backward compatibility with legacy DBs
+                                try:
+                                    new_user.password_hash = hash_val
+                                except Exception:
+                                    pass
+                                try:
+                                    new_user.hashed_password = hash_val
+                                except Exception:
+                                    pass
                                 session.add(new_user)
                                 session.commit()
                                 st.success("Registered successfully! Please switch to Login tab.")
@@ -1232,16 +1230,51 @@ def run_scan(repo_url):
     with Session(engine) as scan_session:
         db_user = scan_session.query(User).filter(User.id == user_id).first()
         if db_user:
-            db_user.scan_status = "Preparing: Cloning repository..."
+            db_user.scan_status = "Preparing: Validating repository..."
             db_user.scan_progress = 0
             scan_session.commit()
 
-    st.session_state.scan_status = "Preparing: Cloning repository..."
+    st.session_state.scan_status = "Preparing: Validating repository..."
     st.session_state.scan_progress = 0
-    st.session_state.abort_event.clear() # Reset kill-switch
-    st.session_state.is_scanning = True
 
-    # Critical: Restore thread start
+    # Quick synchronous validation: ensure target contains code files before starting heavy background work
+    quick_chunks = []
+    validation_error = None
+    try:
+        quick_chunks = get_repo_chunks(repo_url)
+    except Exception as e:
+        validation_error = str(e)
+        _log_debug(f"RUN_SCAN: quick validation failed: {validation_error}")
+
+    if not quick_chunks:
+        # Provide helpful error message based on input type and failure reason
+        if repo_url.startswith('https://github.com') or repo_url.startswith('git@github.com'):
+            if validation_error and 'Failed to clone' in validation_error:
+                user_msg = f"Failed to clone GitHub repo. Check:\n1. URL is correct: {repo_url}\n2. Network connection is active\n3. Repo is public or credentials configured"
+            else:
+                user_msg = f"No code files found in GitHub repo {repo_url}. Ensure the repo has .py, .js, .ts, or other supported code files."
+        else:
+            if validation_error and 'does not exist' in validation_error:
+                user_msg = f"Local path does not exist: {repo_url}\n\nProvide a valid local directory path or a GitHub URL."
+            else:
+                user_msg = f"No supported code files found at {repo_url}.\n\nSupported: .py, .js, .ts, .jsx, .tsx, .java, .cpp, .c, .go, .rb, .php"
+        
+        # Update DB and UI with diagnostic error
+        with Session(engine) as scan_session:
+            db_user = scan_session.query(User).filter(User.id == user_id).first()
+            if db_user:
+                db_user.scan_status = f"Error: {user_msg.split(chr(10))[0]}"
+                db_user.scan_progress = 0
+                scan_session.commit()
+
+        st.error(user_msg)
+        st.session_state.scan_status = user_msg.split('\n')[0]
+        st.session_state.is_scanning = False
+        return
+
+    # Reset kill-switch and start background worker
+    st.session_state.abort_event.clear()
+    st.session_state.is_scanning = True
     thread = threading.Thread(target=background_scan_task, args=(repo_url, user_id, st.session_state.abort_event))
     thread.daemon = True
     thread.start()
@@ -1371,6 +1404,16 @@ if menu == "Ingest":
     db_current_user = session.query(User).filter(User.id == st.session_state.user['id']).first()
     
     if db_current_user and db_current_user.scan_status and "Complete" not in db_current_user.scan_status and "Failure" not in db_current_user.scan_status:
+        # Prepare processing indicator; hide the spinner when an error status is present
+        processing_html = ""
+        try:
+            if db_current_user.scan_status and str(db_current_user.scan_status).lower().startswith('error'):
+                processing_html = f"<div style='margin-top:10px; color: var(--vault-text-muted); font-weight:700;'>⚠️ Scan aborted: {db_current_user.scan_status}</div>"
+            else:
+                processing_html = "<div style=\"margin-top:10px; display:flex; align-items:center; gap:8px; color: var(--vault-text-muted);\"><div class=\"pulse-dot\"></div> <small style=\"font-weight: 600;\">Processing Neural Chunks...</small></div>"
+        except Exception:
+            processing_html = ""
+
         st.markdown(f"""
             <div style="margin-top:20px; padding:20px; border-radius:18px; background: var(--vault-surface-strong); border: 1.5px solid var(--vault-accent); box-shadow: 0 0 28px rgba(0, 242, 255, 0.16);">
                 <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -1383,9 +1426,7 @@ if menu == "Ingest":
                 <div style="margin-top:14px; font-size:0.95rem; font-weight:600; color: var(--vault-text);">
                     <b style="color: var(--vault-accent);">Stage:</b> {db_current_user.scan_status}
                 </div>
-                <div style="margin-top:10px; display:flex; align-items:center; gap:8px; color: var(--vault-text-muted);">
-                    <div class="pulse-dot"></div> <small style="font-weight: 600;">Processing Neural Chunks...</small>
-                </div>
+                {processing_html}
             </div>
             <style>
                 @keyframes pulse-ring {{
@@ -1496,8 +1537,9 @@ elif menu == "Explorer":
             df_hubs = pd.DataFrame([{
                 "Hub ID": h.id,
                 "Logical Name": h.hash_key,
-                "Archetype": h.type,
-                "Relative Path": h.file_path.split("repos")[-1] if "repos" in h.file_path else h.file_path
+                # Backwards-safe access: some DBs/models may use different column names
+                "Archetype": getattr(h, 'type', None) or getattr(h, 'archetype', None) or getattr(h, 'source_type', None) or 'unknown',
+                "Relative Path": (getattr(h, 'file_path', None) or getattr(h, 'repo_url', '') or '').split("repos")[-1] if (getattr(h, 'file_path', None) or getattr(h, 'repo_url', '')) else ''
             } for h in hubs])
             
             st.dataframe(df_hubs, use_container_width=True, hide_index=True)

@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+SQLAlchemy
+pandas
+pymysql
+GitPython
+openai
+pydantic
+python-dotenv
+passlib[bcrypt]
+PyJWT
+numpy
+streamlit
+bcrypt
+streamlit-lottie
+requests
