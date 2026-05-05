@@ -27,6 +27,19 @@ from sqlalchemy.orm import Session
 # --- Environment Setup ---
 load_dotenv()  # Load environment variables from .env file
 
+
+def get_groq_api_key():
+    """Resolve the GROQ API key from Streamlit secrets or environment variables."""
+    try:
+        if "GROQ_API_KEY" in st.secrets:
+            secret_key = st.secrets["GROQ_API_KEY"]
+            if secret_key:
+                return secret_key
+    except Exception:
+        pass
+
+    return os.getenv("GROQ_API_KEY")
+
 # --- Backend Module Setup ---
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 
@@ -1699,10 +1712,10 @@ elif menu == "Architect":
                 context_results = run_hybrid_search(prompt)
                 context_text = "\n\n".join([f"File: {r['name']}\nCode:\n{r['snippet']}" for r in context_results])
                 
-                # Retrieve API key from environment variables
-                api_key = os.getenv('GROQ_API_KEY')
+                # Retrieve API key from Streamlit secrets first, then environment variables
+                api_key = get_groq_api_key()
                 if not api_key:
-                    st.error("❌ GROQ_API_KEY not configured. Please set it in your .env file.")
+                    st.error("❌ GROQ_API_KEY not configured. Add it to Streamlit secrets or your local .env file.")
                     st.stop()
                 
                 url = "https://api.groq.com/openai/v1/chat/completions"
