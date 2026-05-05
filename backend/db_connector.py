@@ -4,6 +4,7 @@
 
 import os
 from datetime import datetime
+import sqlalchemy as sa
 from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime, Float, Boolean, ForeignKey, JSON, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -24,6 +25,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)  # Match actual database schema
     password_hash = Column(String)  # Fallback for backward compatibility
+    session_token = Column(String, index=True)
     role = Column(String, default='User')
     scan_progress = Column(Integer, default=0)
     scan_status = Column(String, default='Idle')
@@ -125,6 +127,13 @@ def run_migrations():
     """Run database migrations."""
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+
+    if engine.dialect.name == 'sqlite':
+        inspector = inspect(engine)
+        user_columns = {column['name'] for column in inspector.get_columns('users')}
+        if 'session_token' not in user_columns:
+            with engine.begin() as connection:
+                connection.execute(sa.text('ALTER TABLE users ADD COLUMN session_token VARCHAR'))
 
 def get_schema_diagnostics(engine):
     """Get database schema diagnostics."""
