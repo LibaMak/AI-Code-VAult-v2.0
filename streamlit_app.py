@@ -1148,11 +1148,10 @@ def background_scan_task(repo_url, user_id, abort_event):
                     hub_data = parsed['hub']
                     new_hub = Hub(
                         hash_key=hub_data['hash_key'],
-                        type=hub_data['type'],
                         code_snippet=hub_data['code_snippet'],
-                        file_path=hub_data.get('file_path', ''),
-                        embedding=hub_data.get('embedding', []),
-                        user_id=user_id
+                        embedding_vector=hub_data.get('embedding', []),
+                        user_id=user_id,
+                        repo_url=hub_data.get('repo_url', '')
                     )
                     scan_session.merge(new_hub)
                     success_count += 1
@@ -1234,13 +1233,10 @@ def process_file_content(uploaded_file, user_id):
                 hub_data = parsed['hub']
                 new_hub = Hub(
                     hash_key=hub_data['hash_key'],
-                    type=hub_data['type'],
                     code_snippet=c,
-                    file_path=f"direct_upload/{filename}",
-                    embedding=hub_data.get('embedding', []),
+                    embedding_vector=hub_data.get('embedding', []),
                     user_id=user_id,
-                    file_id=new_file_meta.id,
-                    source_type=file_ext
+                    repo_url=f"direct_upload/{filename}"
                 )
                 session.merge(new_hub)
                 
