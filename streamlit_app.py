@@ -1712,10 +1712,6 @@ elif menu == "Architect":
                 context_results = run_hybrid_search(prompt)
                 context_text = "\n\n".join([f"File: {r['name']}\nCode:\n{r['snippet']}" for r in context_results])
                 
-                final_prompt = f"""You are the AI Architect. Use the provided context to answer. 
-                Context: {context_text}
-                Question: {prompt}"""
-                
                 # Retrieve API key from environment variables
                 api_key = os.getenv('GROQ_API_KEY')
                 if not api_key:
@@ -1725,11 +1721,19 @@ elif menu == "Architect":
                 url = "https://api.groq.com/openai/v1/chat/completions"
                 model = "llama-3.3-70b-versatile"
                 
+                # Build messages with proper system/user separation
+                context_prompt = f"""Context: {context_text}
+
+Question: {prompt}"""
+                
                 try:
                     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
                     response = requests.post(
                         url=url, headers=headers,
-                        json={"model": model, "messages": [{"role": "user", "content": final_prompt}]},
+                        json={"model": model, "messages": [
+                            {"role": "system", "content": "You are the AI Architect. You are an expert at analyzing code repositories and answering technical questions. Use the provided context to give detailed, accurate answers about code structure, design patterns, and implementation details."},
+                            {"role": "user", "content": context_prompt}
+                        ]},
                         timeout=60
                     )
                     data = response.json()
