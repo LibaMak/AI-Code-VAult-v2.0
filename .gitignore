@@ -1,1 +1,9 @@
 ﻿.env
+# Ignore cloned repos stored under data/repos to avoid nested git repositories
+data/repos/
+# Ignore local SQLite DB files and write-ahead logs
+vault_v5.db
+vault_v5.db*
+
+# Ignore local DB files
+vault_v5.db*

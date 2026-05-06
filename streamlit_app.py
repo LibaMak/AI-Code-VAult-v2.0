@@ -34,11 +34,12 @@ def get_groq_api_key():
         if "GROQ_API_KEY" in st.secrets:
             secret_key = st.secrets["GROQ_API_KEY"]
             if secret_key:
-                return secret_key
+                return secret_key.strip()
     except Exception:
         pass
 
-    return os.getenv("GROQ_API_KEY")
+    key = os.getenv("GROQ_API_KEY")
+    return key.strip() if key else None
 
 # --- Backend Module Setup ---
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
@@ -1229,7 +1230,7 @@ def process_file_content(uploaded_file, user_id):
             filename=filename,
             file_type=file_ext,
             size=file_size,
-            upload_date=datetime.now().isoformat()
+            upload_date=datetime.now()
         )
         session.add(new_file_meta)
         session.commit()
@@ -1409,8 +1410,8 @@ def run_hybrid_search(query):
     try:
         new_hist = SearchHistory(
             query=query,
-            results_json=top_results,
-            timestamp=datetime.now().isoformat(),
+            results_count=len(top_results),
+            timestamp=datetime.now(),
             user_id=user_id
         )
         session.add(new_hist)
@@ -1422,25 +1423,40 @@ def run_hybrid_search(query):
     return top_results
 
 def reset_vault():
-    """Clear all data and reset the system"""
-    # Delete database rows
-    from db_connector import Link, Satellite  # type: ignore
-    session.query(Link).delete()
-    session.query(Satellite).delete()
-    session.query(Hub).delete()
-    session.query(SearchHistory).delete()
-    session.commit()
+    """Clear current user's repositories and chat history only"""
+    user_id = st.session_state.user.get('id')
+    if user_id is None:
+        st.error("Cannot reset: No active user session.")
+        return
     
-    # Clean disk cache
-    shutil.rmtree("./data/repos", ignore_errors=True)
-    
-    # Clear Streamlit internal state
-    st.cache_resource.clear()
-    st.session_state.clear()
-    
-    st.success("System Reset Complete! The Vault is now empty.")
-    time.sleep(1)
-    st.rerun()
+    try:
+        # Delete user's chat history
+        session.query(ChatMessage).filter(ChatMessage.user_id == user_id).delete()
+        # Delete user's search history
+        session.query(SearchHistory).filter(SearchHistory.user_id == user_id).delete()
+        # Delete user's file metadata
+        session.query(FileMetadata).filter(FileMetadata.user_id == user_id).delete()
+        # Delete user's hubs and associated satellites
+        user_hubs = session.query(Hub).filter(Hub.user_id == user_id).all()
+        for hub in user_hubs:
+            session.query(Satellite).filter(Satellite.hub_hash == hub.hash_key).delete()
+        session.query(Hub).filter(Hub.user_id == user_id).delete()
+        session.commit()
+        
+        # Clean disk cache
+        shutil.rmtree("./data/repos", ignore_errors=True)
+        
+        # Clear only user's session state
+        st.session_state.messages = []
+        st.session_state.scan_status = ""
+        st.session_state.scan_progress = 0
+        
+        st.success("Your repositories and chat history have been reset.")
+        time.sleep(1)
+        st.rerun()
+    except Exception as e:
+        session.rollback()
+        st.error(f"Reset failed: {e}")
 
 # --- MAIN UI ---
 st.markdown("""
@@ -1714,7 +1730,7 @@ elif menu == "Architect":
     if prompt := st.chat_input("Enter architectural query..."):
         # Save and Display User Input (Wrapped for stability)
         try:
-            user_msg = ChatMessage(user_id=st.session_state.user['id'], role="user", content=prompt, timestamp=datetime.now().isoformat())
+            user_msg = ChatMessage(user_id=st.session_state.user['id'], role="user", content=prompt, timestamp=datetime.now())
             session.add(user_msg)
             session.commit()
         except Exception as e:
@@ -1737,6 +1753,12 @@ elif menu == "Architect":
                     st.error("❌ GROQ_API_KEY not configured. Add it to Streamlit secrets or your local .env file.")
                     st.stop()
                 
+                # Debug: show key details
+                print(f"VAULT_DEBUG: API key length: {len(api_key)}")
+                print(f"VAULT_DEBUG: API key starts with: {api_key[:20]}")
+                print(f"VAULT_DEBUG: API key ends with: {api_key[-10:]}")
+                print(f"VAULT_DEBUG: API key raw repr: {repr(api_key)}")
+                
                 url = "https://api.groq.com/openai/v1/chat/completions"
                 model = "llama-3.3-70b-versatile"
                 
@@ -1747,6 +1769,7 @@ Question: {prompt}"""
                 
                 try:
                     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    print(f"VAULT_DEBUG: Calling Groq with key prefix: {api_key[:15]}...")
                     response = requests.post(
                         url=url, headers=headers,
                         json={"model": model, "messages": [
@@ -1755,12 +1778,14 @@ Question: {prompt}"""
                         ]},
                         timeout=60
                     )
+                    print(f"VAULT_DEBUG: Groq Response Status: {response.status_code}")
                     data = response.json()
+                    print(f"VAULT_DEBUG: Groq Response Data: {data}")
                     
                     if 'choices' in data:
                         full_res = data['choices'][0]['message']['content']
                         try:
-                            ai_msg = ChatMessage(user_id=st.session_state.user['id'], role="assistant", content=full_res, timestamp=datetime.now().isoformat())
+                            ai_msg = ChatMessage(user_id=st.session_state.user['id'], role="assistant", content=full_res, timestamp=datetime.now())
                             session.add(ai_msg)
                             session.commit()
                         except Exception as e:
@@ -1770,9 +1795,13 @@ Question: {prompt}"""
                         st.session_state.messages.append({"role": "assistant", "content": full_res})
                     else:
                         err_msg = data.get('error', {}).get('message', 'Unknown Error')
-                        st.error(f"Neural API Error: {err_msg}")
+                        st.error(f"Neural API Error (Status {response.status_code}): {err_msg}")
+                        print(f"VAULT_DEBUG: Full Groq Error: {data}")
                 except Exception as e:
                     st.error(f"Architect Connection Error: {str(e)}")
+                    print(f"VAULT_DEBUG: Exception: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
 
 elif menu == "Analytics":
     st.header("Analytics Portal")
