@@ -550,7 +550,7 @@ def verify_integrity():
     with st.spinner("🚀 SYNCHRONIZING NEURAL VAULT... (Safety Handshake)"):
         for attempt in range(3):
             diag = backend['get_schema_diagnostics'](engine_v4)
-            if "users" in diag['tables']:
+            if 'tables' in diag and "users" in diag.get('tables', []):
                 return True
             # Attempt repair
             backend['Base'].metadata.create_all(engine_v4)
