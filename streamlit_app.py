@@ -549,12 +549,32 @@ session = Session(engine_v4)
 def verify_integrity():
     with st.spinner("🚀 SYNCHRONIZING NEURAL VAULT... (Safety Handshake)"):
         for attempt in range(3):
-            diag = backend['get_schema_diagnostics'](engine_v4)
-            if 'tables' in diag and "users" in diag.get('tables', []):
-                return True
-            # Attempt repair
-            backend['Base'].metadata.create_all(engine_v4)
-            backend['run_migrations'](engine_v4)
+            try:
+                diag = backend['get_schema_diagnostics'](engine_v4)
+                if 'tables' in diag and "users" in diag.get('tables', []):
+                    return True
+                # Attempt repair: recreate schema
+                backend['Base'].metadata.create_all(engine_v4)
+                backend['run_migrations'](engine_v4)
+            except Exception as e:
+                # Handle database corruption: delete and reinitialize
+                error_str = str(e).lower()
+                if 'malformed' in error_str or 'corrupt' in error_str or 'database disk image' in error_str:
+                    try:
+                        # Try to get db path from environment or use default
+                        db_url = os.getenv('DATABASE_URL', 'sqlite:///./vault_v5.db')
+                        if 'sqlite' in db_url:
+                            db_path = db_url.replace('sqlite:///', '').replace('sqlite://', '')
+                            if os.path.exists(db_path):
+                                os.remove(db_path)
+                                print(f"🔧 Removed corrupted database: {db_path}")
+                        # Close and recreate engine
+                        engine_v4.dispose()
+                        globals()['engine_v4'] = backend['get_engine']()
+                    except Exception as cleanup_err:
+                        print(f"Database cleanup error: {cleanup_err}")
+                else:
+                    print(f"Database verification error: {e}")
             time.sleep(1)
         return False
 
