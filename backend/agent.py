@@ -27,10 +27,9 @@ def _extract_retry_hint(error_text: str) -> str:
 def _build_provider_fallback(user_message: str, error_text: str) -> str:
     """Return a safe, always-on fallback answer when Groq is unavailable."""
     if "rate_limit_exceeded" in error_text or "Error code: 429" in error_text:
-        retry_hint = _extract_retry_hint(error_text)
         return (
-            f"The AI model is currently rate-limited, so I can't use it right now. "
-            f"Please try again in about {retry_hint}."
+            "The AI service is temporarily busy, so I can't use the model right now. "
+            "Please try again shortly or ask a vault-specific question and I’ll keep helping where I can."
         )
 
     if "model_decommissioned" in error_text or "Error code: 400" in error_text:
