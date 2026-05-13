@@ -37,139 +37,72 @@ def get_client():
 
 TOOLS = [
     {
-        "type": "function",
-        "function": {
-            "name": "search_vault",
-            "description": (
-                "Search the indexed code/document vault using semantic + keyword hybrid search. "
-                "Use this when the user asks a question about code, files, or documents stored in the vault."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query to look up in the vault."
-                    },
-                    "top_k": {
-                        "type": "integer",
-                        "description": "Number of results to return (default 5).",
-                        "default": 5
-                    }
-                },
-                "required": ["query"]
-            }
+        "name": "search_vault",
+        "description": "Search the indexed code/document vault using semantic + keyword hybrid search. Use this when the user asks a question about code, files, or documents stored in the vault.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query to look up in the vault."},
+                "top_k": {"type": "integer", "description": "Number of results to return (default 5).", "default": 5}
+            },
+            "required": ["query"]
         }
     },
     {
-        "type": "function",
-        "function": {
-            "name": "summarize_document",
-            "description": (
-                "Summarize a specific document or file from the vault. "
-                "Use this when the user asks for a summary, overview, or TL;DR of a file."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "The name of the file to summarize."
-                    }
-                },
-                "required": ["filename"]
-            }
+        "name": "summarize_document",
+        "description": "Summarize a specific document or file from the vault. Use this when the user asks for a summary, overview, or TL;DR of a file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "The name of the file to summarize."}
+            },
+            "required": ["filename"]
         }
     },
     {
-        "type": "function",
-        "function": {
-            "name": "generate_quiz",
-            "description": (
-                "Generate quiz questions from a document or topic in the vault. "
-                "Use this when the user asks for a quiz, test questions, or wants to test knowledge."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "The topic or filename to generate quiz questions from."
-                    },
-                    "num_questions": {
-                        "type": "integer",
-                        "description": "Number of quiz questions to generate (default 5).",
-                        "default": 5
-                    }
-                },
-                "required": ["topic"]
-            }
+        "name": "generate_quiz",
+        "description": "Generate quiz questions from a document or topic in the vault. Use this when the user asks for a quiz, test questions, or wants to test knowledge.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "The topic or filename to generate quiz questions from."},
+                "num_questions": {"type": "integer", "description": "Number of quiz questions to generate (default 5).", "default": 5}
+            },
+            "required": ["topic"]
         }
     },
     {
-        "type": "function",
-        "function": {
-            "name": "extract_key_points",
-            "description": (
-                "Extract key points, tables, or important information from a document. "
-                "Use this when the user asks for key points, bullet points, main ideas, or tables."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "The name of the file to extract key points from."
-                    }
-                },
-                "required": ["filename"]
-            }
+        "name": "extract_key_points",
+        "description": "Extract key points, tables, or important information from a document. Use this when the user asks for key points, bullet points, main ideas, or tables.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "The name of the file to extract key points from."}
+            },
+            "required": ["filename"]
         }
     },
     {
-        "type": "function",
-        "function": {
-            "name": "analyze_and_recommend",
-            "description": (
-                "Analyze code or documents and provide recommendations, insights, or improvements. "
-                "Use this when the user asks for analysis, review, recommendations, or suggestions."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": "The filename or topic to analyze."
-                    },
-                    "analysis_type": {
-                        "type": "string",
-                        "description": "Type of analysis: 'code_review', 'security', 'performance', or 'general'.",
-                        "enum": ["code_review", "security", "performance", "general"]
-                    }
-                },
-                "required": ["target", "analysis_type"]
-            }
+        "name": "analyze_and_recommend",
+        "description": "Analyze code or documents and provide recommendations, insights, or improvements. Use this when the user asks for analysis, review, recommendations, or suggestions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "The filename or topic to analyze."},
+                "analysis_type": {"type": "string", "description": "Type of analysis: 'code_review', 'security', 'performance', or 'general'.", "enum": ["code_review", "security", "performance", "general"]}
+            },
+            "required": ["target", "analysis_type"]
         }
-    }
-    ,
+    },
     {
-        "type": "function",
-        "function": {
-            "name": "repo_overview",
-            "description": (
-                "Create a high-level overview of the most relevant files for a repository or feature. "
-                "Use this when the user asks for architecture, structure, or a project summary."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "A broad topic or repository query to inspect."
-                    }
-                },
-                "required": ["query"]
-            }
+        "name": "repo_overview",
+        "description": "Create a high-level overview of the most relevant files for a repository or feature. Use this when the user asks for architecture, structure, or a project summary.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "A broad topic or repository query to inspect."}
+            },
+            "required": ["query"]
         }
     }
 ]
