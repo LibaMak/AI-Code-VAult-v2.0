@@ -7,6 +7,7 @@
 # --- Standard Library Imports ---
 import os
 import sys
+import json
 import time
 import threading
 import shutil
@@ -54,6 +55,7 @@ def load_backend_modules():
     from repo_scanner import get_repo_chunks, _log_debug  # type: ignore
     from ai_parser import parse_code_chunk, generate_embedding  # type: ignore
     from file_processor import extract_text_from_file, chunk_text  # type: ignore
+    import agent as agent_module  # type: ignore
     
     return {
         # Database Models
@@ -75,7 +77,9 @@ def load_backend_modules():
         'parse_code_chunk': parse_code_chunk,
         'generate_embedding': generate_embedding,
         'extract_text_from_file': extract_text_from_file,
-        'chunk_text': chunk_text
+        'chunk_text': chunk_text,
+        'agent': agent_module,
+        'run_agent': agent_module.run_agent
     }
 
 # Load backend and extract commonly used items
@@ -94,6 +98,7 @@ parse_code_chunk = backend['parse_code_chunk']
 generate_embedding = backend['generate_embedding']
 extract_text_from_file = backend['extract_text_from_file']
 chunk_text = backend['chunk_text']
+run_agent = backend['run_agent']
 
 
 # ============================================================================
@@ -163,6 +168,7 @@ def render_satellite_card(metrics):
     </div>
     """
     return card_html
+
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -1442,6 +1448,9 @@ def run_hybrid_search(query):
     
     return top_results
 
+
+backend['run_hybrid_search'] = run_hybrid_search
+
 def reset_vault():
     """Clear current user's repositories and chat history only"""
     user_id = st.session_state.user.get('id')
@@ -1763,60 +1772,39 @@ elif menu == "Architect":
 
         with st.chat_message("assistant"):
             with st.spinner("Analyzing Vault Embeddings..."):
-                # RAG Logic
-                context_results = run_hybrid_search(prompt)
-                context_text = "\n\n".join([f"File: {r['name']}\nCode:\n{r['snippet']}" for r in context_results])
-                
-                # Retrieve API key from Streamlit secrets first, then environment variables
-                api_key = get_groq_api_key()
-                if not api_key:
-                    st.error("❌ GROQ_API_KEY not configured. Add it to Streamlit secrets or your local .env file.")
-                    st.stop()
-                
-                # Debug: show key details
-                print(f"VAULT_DEBUG: API key length: {len(api_key)}")
-                print(f"VAULT_DEBUG: API key starts with: {api_key[:20]}")
-                print(f"VAULT_DEBUG: API key ends with: {api_key[-10:]}")
-                print(f"VAULT_DEBUG: API key raw repr: {repr(api_key)}")
-                
-                url = "https://api.groq.com/openai/v1/chat/completions"
-                model = "llama-3.3-70b-versatile"
-                
-                # Build messages with proper system/user separation
-                context_prompt = f"""Context: {context_text}
-
-Question: {prompt}"""
-                
                 try:
-                    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-                    print(f"VAULT_DEBUG: Calling Groq with key prefix: {api_key[:15]}...")
-                    response = requests.post(
-                        url=url, headers=headers,
-                        json={"model": model, "messages": [
-                            {"role": "system", "content": "You are the AI Architect, a code analysis assistant for software repositories. Stay focused on programming, architecture, debugging, code review, and implementation details. Do not act as a legal assistant, medical assistant, or any other domain specialist. Ignore unrelated legal or policy context unless the user explicitly asks about code in a repository. Prefer concise, technical, actionable answers grounded in the provided repository context."},
-                            {"role": "user", "content": context_prompt}
-                        ]},
-                        timeout=60
-                    )
-                    print(f"VAULT_DEBUG: Groq Response Status: {response.status_code}")
-                    data = response.json()
-                    print(f"VAULT_DEBUG: Groq Response Data: {data}")
-                    
-                    if 'choices' in data:
-                        full_res = data['choices'][0]['message']['content']
-                        try:
-                            ai_msg = ChatMessage(user_id=st.session_state.user['id'], role="assistant", content=full_res, timestamp=datetime.now())
-                            session.add(ai_msg)
-                            session.commit()
-                        except Exception as e:
-                            session.rollback()
-                            print(f"VAULT_DEBUG: Failed to log AI response: {e}")
-                        st.markdown(full_res)
-                        st.session_state.messages.append({"role": "assistant", "content": full_res})
-                    else:
-                        err_msg = data.get('error', {}).get('message', 'Unknown Error')
-                        st.error(f"Neural API Error (Status {response.status_code}): {err_msg}")
-                        print(f"VAULT_DEBUG: Full Groq Error: {data}")
+                    agent_result = run_agent(prompt, st.session_state.messages, backend)
+                    full_res = agent_result.get("answer", "No answer returned by the agent.")
+                    steps = agent_result.get("steps", [])
+                    tools_used = agent_result.get("tools_used", [])
+                    if tools_used:
+                        st.info(f"Agent completed using {len(tools_used)} tool call(s): {', '.join(tools_used)}")
+                    if steps or tools_used:
+                        with st.expander("Agent trace", expanded=False):
+                            if tools_used:
+                                st.markdown("**Tools used**")
+                                st.write(", ".join(tools_used))
+                            if steps:
+                                st.markdown("**Agent steps**")
+                                for step in steps:
+                                    step_type = step.get("type", "step")
+                                    iteration = step.get("iteration", 0)
+                                    content = step.get("content", "")
+                                    if step_type == "tool_call":
+                                        st.write(f"Iteration {iteration}: called {step.get('tool', 'tool')} with {step.get('args', {})}")
+                                    elif step_type == "tool_result":
+                                        st.write(f"Iteration {iteration}: {content}")
+                                    else:
+                                        st.write(content)
+                    try:
+                        ai_msg = ChatMessage(user_id=st.session_state.user['id'], role="assistant", content=full_res, timestamp=datetime.now())
+                        session.add(ai_msg)
+                        session.commit()
+                    except Exception as e:
+                        session.rollback()
+                        print(f"VAULT_DEBUG: Failed to log AI response: {e}")
+                    st.markdown(full_res)
+                    st.session_state.messages.append({"role": "assistant", "content": full_res})
                 except Exception as e:
                     st.error(f"Architect Connection Error: {str(e)}")
                     print(f"VAULT_DEBUG: Exception: {str(e)}")
