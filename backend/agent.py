@@ -4,6 +4,10 @@
 
 import os
 import json
+from dotenv import load_dotenv
+
+# Load .env from project root so GROQ_API_KEY is available when running Streamlit
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 from groq import Groq
 
 
