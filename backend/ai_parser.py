@@ -151,9 +151,9 @@ def parse_code_chunk(chunk):
 
         return parsed
 
-    except json.JSONDecodeError as e:
-        print(f"[GROQ] JSON parse error for {chunk.get('name')}: {e}. Using fallback.")
+    except json.JSONDecodeError:
+        print(f"[GROQ] JSON parse error for {chunk.get('name')}. Using fallback.")
         return fallback_parse(chunk)
     except Exception as e:
-        print(f"[GROQ] API error for {chunk.get('name')}: {e}. Using fallback.")
+        print(f"[GROQ] API error for {chunk.get('name')}. Using fallback.")
         return fallback_parse(chunk)

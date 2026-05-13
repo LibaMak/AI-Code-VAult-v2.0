@@ -383,13 +383,19 @@ IMPORTANT:
         except Exception as e:
             # Capture provider error including failed_generation hints
             err_text = str(e)
+            fallback_answer = _build_provider_fallback(user_message, err_text)
+            fallback_note = "AI provider is temporarily unavailable; used fallback response."
+            if "rate_limit_exceeded" in err_text or "Error code: 429" in err_text:
+                fallback_note = "AI provider is rate-limited; used fallback response."
+            elif "model_decommissioned" in err_text or "Error code: 400" in err_text:
+                fallback_note = "AI provider model is unavailable; used fallback response."
             steps.append({
                 "iteration": iteration + 1,
-                "type": "provider_error",
-                "content": f"Provider error: {err_text}"
+                "type": "fallback",
+                "content": fallback_note
             })
             return {
-                "answer": _build_provider_fallback(user_message, err_text),
+                "answer": fallback_answer,
                 "steps": steps,
                 "tools_used": tools_used
             }
