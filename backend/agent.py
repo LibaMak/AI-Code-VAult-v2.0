@@ -15,6 +15,36 @@ client = None
 MODEL = "llama-3.3-70b-versatile"
 
 
+def _extract_retry_hint(error_text: str) -> str:
+    """Pull a human-friendly retry hint out of a provider error string."""
+    marker = "Please try again in "
+    if marker in error_text:
+        tail = error_text.split(marker, 1)[1]
+        return tail.split(".", 1)[0].strip()
+    return "a few minutes"
+
+
+def _build_provider_fallback(user_message: str, error_text: str) -> str:
+    """Return a safe, always-on fallback answer when Groq is unavailable."""
+    if "rate_limit_exceeded" in error_text or "Error code: 429" in error_text:
+        retry_hint = _extract_retry_hint(error_text)
+        return (
+            f"The AI model is currently rate-limited, so I can't use it right now. "
+            f"Please try again in about {retry_hint}."
+        )
+
+    if "model_decommissioned" in error_text or "Error code: 400" in error_text:
+        return (
+            "The configured AI model is no longer supported by the provider. "
+            "I can still help with a direct summary or troubleshoot the setup if you want."
+        )
+
+    return (
+        "I couldn't reach the AI provider just now, so I can't generate a model-based response. "
+        "Please try again shortly or share the specific question and I can help narrow it down."
+    )
+
+
 def get_client():
     """Create a Groq client lazily so the module can be imported without an API key."""
     global client
@@ -359,7 +389,7 @@ IMPORTANT:
                 "content": f"Provider error: {err_text}"
             })
             return {
-                "answer": f"Agent provider error: {err_text}",
+                "answer": _build_provider_fallback(user_message, err_text),
                 "steps": steps,
                 "tools_used": tools_used
             }
@@ -479,13 +509,13 @@ IMPORTANT:
                 "content": fallback_text
             })
             return {
-                "answer": f"Agent reached max steps. {fallback_text}",
+                "answer": "I couldn't generate a model response just now, but the app is still working. Please try again shortly.",
                 "steps": steps,
                 "tools_used": tools_used
             }
     
     return {
-        "answer": "The agent reached its maximum steps. Please try a more specific question.",
+        "answer": "I couldn't complete the full agent loop, but the app is still working. Please try a more specific question.",
         "steps": steps,
         "tools_used": tools_used
     }
