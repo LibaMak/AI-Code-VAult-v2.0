@@ -403,13 +403,27 @@ IMPORTANT:
                 "tools_used": []
             }
 
-        response = groq_client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            max_tokens=1000
-        )
+        try:
+            response = groq_client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                functions=TOOLS,
+                function_call="auto",
+                max_tokens=1000
+            )
+        except Exception as e:
+            # Capture provider error including failed_generation hints
+            err_text = str(e)
+            steps.append({
+                "iteration": iteration + 1,
+                "type": "provider_error",
+                "content": f"Provider error: {err_text}"
+            })
+            return {
+                "answer": f"Agent provider error: {err_text}",
+                "steps": steps,
+                "tools_used": tools_used
+            }
 
         response_message = response.choices[0].message
         finish_reason = response.choices[0].finish_reason
@@ -469,6 +483,16 @@ IMPORTANT:
 
             # Run the tool
             tool_result = execute_tool(tool_name, tool_args, backend)
+            if tool_result is None:
+                tool_result = ""
+            # Ensure tool_result is a string and not excessively long
+            if not isinstance(tool_result, str):
+                try:
+                    tool_result = str(tool_result)
+                except Exception:
+                    tool_result = "<non-string tool result>"
+            if len(tool_result) > 32000:
+                tool_result = tool_result[:32000] + "\n\n[TRUNCATED]"
 
             # Log result
             steps.append({
