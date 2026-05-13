@@ -12,7 +12,7 @@ from groq import Groq
 
 
 client = None
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "mixtral-8x7b-32768"  # Lighter model for better token efficiency on free tier
 
 
 def get_client():
