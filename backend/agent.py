@@ -303,19 +303,21 @@ def run_agent(user_message: str, chat_history: list, backend: dict) -> dict:
     system_prompt = """You are an intelligent AI assistant for the AI Code Vault — 
 a platform for indexing and querying code repositories and documents.
 
-You have access to the following tools:
+You have access to the following tools when needed:
 - search_vault: Search indexed files semantically
 - summarize_document: Summarize a specific file
 - generate_quiz: Generate quiz questions on a topic
 - extract_key_points: Extract key points and tables from a file
 - analyze_and_recommend: Analyze code/docs and give recommendations
+- repo_overview: Get high-level repository overview
 
 IMPORTANT: 
-- You MUST decide which tool(s) to use based on the user's question.
-- You can call multiple tools if needed.
+- Use tools ONLY when the user asks about code/documents in the vault or needs vault-specific analysis.
+- For general knowledge questions, greetings, or requests that don't need vault data, answer directly WITHOUT tools.
+- You can call multiple tools if needed to fully answer a question.
 - After getting tool results, synthesize a clear, helpful answer.
-- Always cite which files/sources your answer came from.
-- If no tool is needed (e.g. general greetings), answer directly."""
+- Always cite which files/sources your answer came from when using tools.
+- If tools are not needed, answer the question directly and helpfully."""
 
     # Build messages: system + history + new user message
     if chat_history and chat_history[-1].get("role") == "user" and chat_history[-1].get("content") == user_message:
@@ -446,7 +448,42 @@ IMPORTANT:
                 "content": tool_result
             })
 
-    # If we exit the loop without a stop, return what we have
+    # If we exit the loop without a stop, use fallback LLM response (no tools)
+    groq_client = get_client()
+    if groq_client:
+        try:
+            fallback_response = groq_client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a helpful AI assistant. Answer the user's question directly and concisely."},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=800
+            )
+            fallback_answer = fallback_response.choices[0].message.content or "I couldn't generate an answer."
+            steps.append({
+                "iteration": max_iterations,
+                "type": "fallback",
+                "content": "Agent reached max steps. Used fallback LLM response (no tools)."
+            })
+            return {
+                "answer": fallback_answer,
+                "steps": steps,
+                "tools_used": tools_used
+            }
+        except Exception as e:
+            fallback_text = f"Fallback error: {str(e)}"
+            steps.append({
+                "iteration": max_iterations,
+                "type": "fallback_error",
+                "content": fallback_text
+            })
+            return {
+                "answer": f"Agent reached max steps. {fallback_text}",
+                "steps": steps,
+                "tools_used": tools_used
+            }
+    
     return {
         "answer": "The agent reached its maximum steps. Please try a more specific question.",
         "steps": steps,
